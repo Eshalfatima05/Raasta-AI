@@ -1,0 +1,41 @@
+.error-boundary {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  background: var(--sand);
+  color: var(--ink);
+}
+
+.error-boundary__icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+}
+
+.error-boundary__title {
+  font-family: var(--font-urdu);
+  font-size: 28px;
+  margin: 0 0 8px;
+  direction: rtl;
+}
+
+.error-boundary__subtitle {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0 0 24px;
+  max-width: 320px;
+}
+
+.error-boundary__button {
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--maroon);
+  color: var(--paper);
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}

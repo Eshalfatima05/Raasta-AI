@@ -1,0 +1,61 @@
+.mic-button {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ink);
+  color: var(--sand);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow);
+  transition: transform 0.15s ease;
+}
+
+.mic-button:hover:not(:disabled) {
+  transform: scale(1.03);
+}
+
+.mic-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mic-button__core {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 30%, var(--ink-soft), var(--ink));
+}
+
+.mic-button__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--marigold);
+  opacity: 0;
+}
+
+.mic-button.is-listening .mic-button__ring--1 {
+  animation: rasta-pulse 1.6s ease-out infinite;
+}
+.mic-button.is-listening .mic-button__ring--2 {
+  animation: rasta-pulse 1.6s ease-out infinite;
+  animation-delay: 0.5s;
+}
+
+@keyframes rasta-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}

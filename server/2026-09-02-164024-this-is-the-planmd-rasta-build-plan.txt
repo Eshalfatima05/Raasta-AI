@@ -1,0 +1,696 @@
+ ▐▛███▛█   Claude Code v2.1.258
+▝▜██████▀  Sonnet 5 · Claude Pro
+  ▝▝ ▝▝    ~/Documents/hackathons/rasta-app/server
+
+⚠ Your login expires in 3 days · run /login to renew
+
+❯ this is the plan.md : # Rasta — Build Plan                                    
+                                                                                
+  Voice-only, landmark-based navigation for Urdu speakers.                      
+  Target: working demo in 7 days, built so week two isn't a rewrite.            
+                                                                                
+  ---                                                                           
+                                                                                
+  ## 0. Decisions                                                               
+                                                                                
+  | | |                                                                         
+  |---|---|                                                                     
+  | **Demo corridor** | Blue Area, Islamabad — bbox `33.70,73.03 → 33.74,73.09` 
+  |                                                                             
+  | **Instruction script** | Roman Urdu spoken by default; Urdu script written  
+  alongside from day 5 |                                                        
+  | **STT** | Web Speech API (day 1) → **Groq `whisper-large-v3`** (day 5) |    
+  | **TTS** | `speechSynthesis` (day 1) → **Microsoft Edge TTS**                
+  `ur-PK-AsadNeural` (day 5) |                                                  
+  | **Routing / landmarks** | OSRM demo server · Overpass API |                 
+  | **Package target** | Android via Capacitor |                                
+                                                                                
+  Two consequences that shape the code from day one:                            
+                                                                                
+  **Edge TTS wants Urdu script, not Roman.** Feeding `ur-PK-AsadNeural` Roman   
+  Urdu produces mush. So every instruction template carries two strings from    
+  the                                                                           
+  moment it's written — `latin` and `native` — and the speech layer picks based 
+  on which engine is live. Ten extra string literals in one file, versus        
+  rewriting the template layer mid-week.                                        
+                                                                                
+  **Groq Whisper deletes the day-7 Android risk rather than working around      
+  it.**                                                                         
+  Android WebView has no Web Speech recognition, which is the single thing most 
+  likely to eat day 7. Recording a blob and POSTing it to Groq works            
+  identically                                                                   
+  in Chrome and in a WebView. That's why the STT swap is scheduled for day 5,   
+  not                                                                           
+  treated as a stretch goal — it buys down risk two days before the risk lands. 
+                                                                                
+  **Edge TTS needs no key.** It's an unofficial endpoint. The only key in this  
+  project is Groq's. See §4.4 for how it's handled.                             
+                                                                                
+  ---                                                                           
+                                                                                
+  ## 1. Guiding constraints                                                     
+                                                                                
+  - **The free path always works.** Groq and Edge TTS are upgrades layered onto 
+    a system that already navigates end to end with browser-native APIs. If a   
+    key expires or an endpoint moves, the app degrades a notch and keeps        
+    talking. It never dead-ends. §2.7 specifies exactly how.                    
+  - **One innovation, done properly.** The landmark saliency ranker is the      
+    thesis. It is pure, testable, offline logic with no API call. Everything    
+    else is plumbing around it, and should look like plumbing.                  
+  - **Every external boundary is swappable in one file.** Not through an        
+    abstraction layer — through a function signature and a lookup object. §3.   
+  - **Demo-scoped.** One city corridor, public endpoints, no backend, no        
+    database, no accounts.                                                      
+                                                                                
+  ---                                                                           
+                                                                                
+  ## 2. Architecture                                                            
+                                                                                
+  ```                                                                           
+  ┌─────────────────────────────────────────────────┐                           
+  │  React (Vite) — single page, no router          │                           
+  │                                                                             
+  ──── (408 lines hidden) ───────────────────────────────────────────────────── 
+  **Approach when we build it:**                                                
+                                                                                
+  - **Leaflet + OSM raster tiles.** ~40 KB, no key, no build config. MapLibre   
+  GL                                                                            
+    is the "better" answer and also needs a vector tile source, which needs a   
+  key                                                                           
+    or a self-hosted server — not worth it to draw a line and a dot.            
+  - **Additive, never load-bearing.** `<MapView>` is a sibling to `GuideView`   
+    reading the same route state. If it fails to mount, navigation keeps        
+  talking.                                                                      
+    No `lib/` module gains a dependency on it — that's the §3 constraint doing  
+  its                                                                           
+    job.                                                                        
+  - **What it draws:** route polyline, current position, and the part that's    
+    actually ours — **a pin on every chosen landmark, labelled with the         
+    instruction that mentions it.** That single image explains the saliency     
+  ranker                                                                        
+    better than the map is worth on its own.                                    
+  - **Debug overlay:** rejected candidates in grey with their component scores. 
+    Day 4's debug panel, made spatial. This becomes the tuning tool.            
+  - **Tile policy:** OSM's public tiles are for light/demo use only. Real       
+    distribution needs a keyed provider or self-hosted tiles — the same class   
+  of                                                                            
+    problem as the OSRM demo server, and it comes due at the same time.         
+                                                                                
+  Estimated: 1 day for route + position, half a day for landmark pins and the   
+  debug overlay.                                                                
+                                                                                
+  ### 7.2 Beyond that                                                           
+                                                                                
+  | Phase | Item | Notes |                                                      
+  |---|---|---|                                                                 
+  | 2 | **Groq key behind a proxy** | Hard prerequisite for anyone but you      
+  installing it |                                                               
+  | 2 | Self-hosted OSRM + Overpass | Removes the public-endpoint risk.         
+  Prerequisite for anything real |                                              
+  | 2 | LLM instruction generation | Generate once at route time, never         
+  per-turn — latency in the nav loop is the one place it hurts |                
+  | 2 | Coverage beyond Blue Area | Mostly geocoding + landmark cache, not      
+  routing |                                                                     
+  | 3 | Camera landmark verification | "Am I at the right pump?" — the          
+  proposal's Phase 2 |                                                          
+  | 3 | Community landmark scores | Turns hand-tuned saliency weights into      
+  learned ones |                                                                
+  | 4 | Offline routing + tiles | The genuinely hard one. Needs on-device OSRM  
+  data |                                                                        
+  | 4 | Punjabi, Saraiki, Pashto, Sindhi | Templates are already data; the      
+  bottleneck is TTS voices, not our code |                                      
+  | 4 | Accessibility mode | Voice-only is already 90% of the way there —       
+  mostly haptics and pacing |                                                   
+                                                                                
+  ---                                                                           
+                                                                                
+  ## 8. Explicitly out of scope for the 7-day MVP                               
+                                                                                
+  Nationwide coverage · offline maps · live traffic · camera landmark           
+  recognition ·                                                                 
+  user-contributed landmarks · accounts · backend · **map rendering (§7.1)** ·  
+  languages beyond Urdu.                                                        
+   how much of it has been implemented yet, we want fast development, end the   
+  ap by tonight                                                                 
+
+  Read 2 files, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+⏺ This is a solid, mostly-complete implementation — quite different from
+  plan.md's architecture (it uses a real backend server instead of client-side
+  engine-swap modules) but functionally covers most of the plan's scope already.
+  Let me check the UI screens, server, and env setup before judging what's
+  left.
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+⏺ Deps are already installed. Let's check whether server/.env exists (i.e.,
+  whether a Groq key is already configured) and then try starting the app.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Good — dependencies are already installed and no .env exists yet (so Groq
+  features are currently off). Let's boot both servers and see what already
+  works.
+
+  Listed 1 directory, ran 4 shell commands (ctrl+o to expand)
+
+⏺ Now let's start both dev servers and verify they run.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Both servers are up. Let's test the app in the browser to verify the
+  end-to-end flow (geocode → route → landmarks → saliency → instructions → TTS).
+
+  Called claude-in-chrome 3 times (ctrl+o to expand)
+
+⏺ Home screen renders cleanly. Let's click a demo destination to test the full
+  pipeline (geocode → OSRM → Overpass → saliency → instructions → map).
+
+  Called claude-in-chrome 6 times (ctrl+o to expand)
+
+⏺ It's loading (geocoding → routing → landmarks pipeline). Let's wait for it to
+  complete.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+⏺ Still loading — let's check network requests to see if something's stalled.
+
+  Called claude-in-chrome 3 times (ctrl+o to expand)
+
+⏺ Good — those 500s are expected (no Groq key) and fall back to rule-based
+  instructions. Route/landmark calls must have succeeded already. Let's wait a
+  bit more for it to settle.
+
+  Called claude-in-chrome 2 times (ctrl+o to expand)
+
+⏺ It's working, just slow — many maneuvers each hitting the public Overpass API.
+  Let's give it more time.
+
+  Called claude-in-chrome 5 times (ctrl+o to expand)
+⏺ Found the actual blocker: pipeline.js fires one Overpass query per route step,
+  and the public Overpass API queues/throttles that — a real route can have 30+
+  steps, so this hangs for minutes. This is exactly the anti-pattern plan.md's
+  Day 3 section warned against ("Not per-turn; Overpass will rate-limit us").
+  Let's kill the stuck request and fix it properly — one query for the whole
+  route corridor, then filter per-step in memory.
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+⏺ Rewriting overpass.js to query once per route (bbox over the whole geometry)
+  instead of once per step:
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/overpass.js)
+  ⎿  Added 16 lines, removed 5 lines
+      14    ['leisure', 'park'],
+      15  ];
+      16  
+      17 -function buildQuery(lat, lon, radius) {                        
+      17 +function buildBboxQuery(south, west, north, east) {            
+      18 +  const bbox = `${south},${west},${north},${east}`;            
+      19    const clauses = LANDMARK_TAGS
+      19 -    .map(([k, v]) => `node(around:${radius},${lat},${lon})["${k
+         -}"="${v}"];`)                                                  
+      20 +    .map(([k, v]) => `node(${bbox})["${k}"="${v}"];`)          
+      21      .join('\n');
+      21 -  return `[out:json][timeout:15];(${clauses});out body;`;      
+      22 +  return `[out:json][timeout:25];(${clauses});out body;`;      
+      23  }
+      24  
+      24 -export async function getNearbyLandmarks(lat, lon, radius = 150
+         -) {                                                            
+      25 -  const query = buildQuery(lat, lon, radius);                  
+      25 +// One Overpass call for the whole route's bounding box (padded
+         +), instead of one                                              
+      26 +// call per turn — per-turn queries get queued/rate-limited by 
+         +the public Overpass                                            
+      27 +// instance and can take minutes on a route with many maneuvers
+         +.                                                              
+      28 +export async function getLandmarksForRoute(routeCoordinates, pa
+         +dDegrees = 0.003) {                                            
+      29 +  const lats = routeCoordinates.map((c) => c[1]);              
+      30 +  const lons = routeCoordinates.map((c) => c[0]);              
+      31 +  const south = Math.min(...lats) - padDegrees;                
+      32 +  const north = Math.max(...lats) + padDegrees;                
+      33 +  const west = Math.min(...lons) - padDegrees;                 
+      34 +  const east = Math.max(...lons) + padDegrees;                 
+      35 +                                                               
+      36 +  const query = buildBboxQuery(south, west, north, east);      
+      37    const res = await fetch(OVERPASS_URL, {
+      38      method: 'POST',
+      39      body: query,
+
+⏺ Now update pipeline.js to fetch landmarks once and filter/rank per step in
+  memory (no network per step):
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/pipeline.js)
+  ⎿  Added 28 lines, removed 9 lines
+       1  import { getRoute } from './osrm';
+       2 -import { getNearbyLandmarks } from './overpass';               
+       2 +import { getLandmarksForRoute } from './overpass';             
+       3  import { bestLandmarkFor } from './saliency';
+       4  import { generateInstruction } from './instructions';
+       5  
+       6 +const LANDMARK_SEARCH_RADIUS_METERS = 150;                     
+       7 +                                                               
+       8  /**
+       9   * Full pipeline: origin + destination -> spoken, landmark-base
+          d route steps.
+      10   * This is Rasta's core: GPS route in, natural Urdu guidance ou
+          t.
+     ...
+      12  export async function buildGuidedRoute(origin, destination) {
+      13    const route = await getRoute(origin, destination);
+      14  
+      15 +  // One Overpass call for the whole route corridor, not one pe
+         +r turn —                                                       
+      16 +  // the public Overpass instance queues/rate-limits per-turn q
+         +ueries.                                                        
+      17 +  let candidates = [];                                         
+      18 +  try {                                                        
+      19 +    candidates = await getLandmarksForRoute(route.geometry.coor
+         +dinates);                                                      
+      20 +  } catch {                                                    
+      21 +    candidates = []; // falls back to distance-based instructio
+         +ns below                                                       
+      22 +  }                                                            
+      23 +                                                               
+      24    const guidedSteps = await Promise.all(
+      25      route.steps.map(async (step) => {
+      15 -      let landmark = null;                                     
+      16 -      try {                                                    
+      17 -        const candidates = await getNearbyLandmarks(step.locati
+         -on.lat, step.location.lon);                                    
+      18 -        landmark = bestLandmarkFor(candidates, step.location); 
+      19 -      } catch {                                                
+      20 -        // Overpass can be flaky under load — fail gracefully t
+         -o distance-based instruction                                   
+      21 -        landmark = null;                                       
+      22 -      }                                                        
+      26 +      const nearby = candidates.filter(                        
+      27 +        (lm) => distanceMeters(lm, step.location) <= LANDMARK_S
+         +EARCH_RADIUS_METERS                                            
+      28 +      );                                                       
+      29 +      const landmark = bestLandmarkFor(nearby, step.location); 
+      30        const instruction = await generateInstruction(step, landm
+          ark);
+      31        return { ...step, landmark, instruction };
+      32      })
+     ...
+      34  
+      35    return { ...route, steps: guidedSteps };
+      36  }
+      37 +                                                               
+      38 +function distanceMeters(a, b) {                                
+      39 +  const R = 6371000;                                           
+      40 +  const dLat = ((b.lat - a.lat) * Math.PI) / 180;              
+      41 +  const dLon = ((b.lon - a.lon) * Math.PI) / 180;              
+      42 +  const lat1 = (a.lat * Math.PI) / 180;                        
+      43 +  const lat2 = (b.lat * Math.PI) / 180;                        
+      44 +  const h =                                                    
+      45 +    Math.sin(dLat / 2) ** 2 +                                  
+      46 +    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2; 
+      47 +  return 2 * R * Math.asin(Math.sqrt(h));                      
+      48 +}                                                              
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Reusing the existing helper instead of duplicating it — export it from
+  saliency.js and import in pipeline.js.
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/saliency.js)
+  ⎿  Added 1 line, removed 1 line
+      20    landmark: 3,
+      21  };
+      22  
+      23 -function distanceMeters(a, b) {                                
+      23 +export function distanceMeters(a, b) {                         
+      24    const R = 6371000;
+      25    const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+      26    const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/pipeline.js)
+  ⎿  Added 1 line, removed 1 line
+      1  import { getRoute } from './osrm';
+      2  import { getLandmarksForRoute } from './overpass';
+      3 -import { bestLandmarkFor } from './saliency';                   
+      3 +import { bestLandmarkFor, distanceMeters } from './saliency';   
+      4  import { generateInstruction } from './instructions';
+      5  
+      6  const LANDMARK_SEARCH_RADIUS_METERS = 150;
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/pipeline.js)
+  ⎿  Removed 12 lines
+      34  
+      35    return { ...route, steps: guidedSteps };
+      36  }
+      37 -                                                               
+      38 -function distanceMeters(a, b) {                                
+      39 -  const R = 6371000;                                           
+      40 -  const dLat = ((b.lat - a.lat) * Math.PI) / 180;              
+      41 -  const dLon = ((b.lon - a.lon) * Math.PI) / 180;              
+      42 -  const lat1 = (a.lat * Math.PI) / 180;                        
+      43 -  const lat2 = (b.lat * Math.PI) / 180;                        
+      44 -  const h =                                                    
+      45 -    Math.sin(dLat / 2) ** 2 +                                  
+      46 -    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2; 
+      47 -  return 2 * R * Math.asin(Math.sqrt(h));                      
+      48 -}                                                              
+
+⏺ Now let's reload and retest with the fix.
+
+  Called claude-in-chrome 5 times (ctrl+o to expand)
+
+⏺ Found a second real bug — the geocoder resolved "Convention Center" to
+  somewhere 5632km away (Nominatim with bounded:0 only biases, it doesn't
+  restrict). This is exactly the failure plan.md's curated-fallback-table was
+  meant to prevent, and it's currently missing. Let's add it.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/geocode.js)
+  ⎿  Added 21 lines, removed 1 line
+       2  const BLUE_AREA_VIEWBOX = '73.038,33.725,73.075,33.695'; // lef
+          t,top,right,bottom
+       3  const BLUE_AREA_CENTER = { lat: 33.7086, lon: 73.0563 };
+       4  
+       5 +// Curated Blue Area destinations. Nominatim with `bounded:0` o
+         +nly *biases* toward                                            
+       6 +// the viewbox — an ambiguous query like "Convention Center" ca
+         +n still resolve                                                
+       7 +// halfway across the world. These known demo spots are matched
+         + first so the                                                  
+       8 +// demo never depends on a live geocoder guessing right.       
+       9 +const CURATED_DESTINATIONS = [                                 
+      10 +  { match: 'centaurus', name: 'Centaurus Mall', lat: 33.7097, l
+         +on: 73.0491 },                                                 
+      11 +  { match: 'convention', name: 'Jinnah Convention Center', lat:
+         + 33.7215, lon: 73.0895 },                                      
+      12 +  { match: 'serena', name: 'Serena Hotel', lat: 33.7166, lon: 7
+         +3.0631 },                                                      
+      13 +  { match: 'f-6 markaz', name: 'F-6 Markaz', lat: 33.7241, lon:
+         + 73.0687 },                                                    
+      14 +  { match: 'f6 markaz', name: 'F-6 Markaz', lat: 33.7241, lon: 
+         +73.0687 },                                                     
+      15 +];                                                             
+      16 +                                                               
+      17 +function matchCurated(query) {                                 
+      18 +  const q = query.trim().toLowerCase();                        
+      19 +  return CURATED_DESTINATIONS.find((d) => q.includes(d.match)) 
+         +?? null;                                                       
+      20 +}                                                              
+      21 +                                                               
+      22  export async function geocodeDestination(query) {
+      23 +  const curated = matchCurated(query);                         
+      24 +  if (curated) return { name: curated.name, lat: curated.lat, l
+         +on: curated.lon };                                             
+      25 +                                                               
+      26    const url = new URL('https://nominatim.openstreetmap.org/sear
+          ch');
+      27    url.searchParams.set('q', query);
+      28    url.searchParams.set('format', 'json');
+      29    url.searchParams.set('limit', '3');
+      30    url.searchParams.set('viewbox', BLUE_AREA_VIEWBOX);
+      11 -  url.searchParams.set('bounded', '0'); // prefer, don't strict
+         -ly bound — demo data is sparse                                 
+      31 +  url.searchParams.set('bounded', '1'); // strictly bound — an 
+         +unbound guess can land anywhere on Earth                       
+      32    url.searchParams.set('addressdetails', '1');
+      33  
+      34    const res = await fetch(url.toString(), {
+
+⏺ Now let's reload and re-test end to end.
+
+  Called claude-in-chrome 7 times (ctrl+o to expand)
+
+⏺ That's a massive fix — 4.8km/6min instead of 5632km. Let's test TTS playback
+  (Edge TTS, no key required) by clicking play on a step.
+
+  Called claude-in-chrome 3 times (ctrl+o to expand)
+
+⏺ TTS returns 200 (Edge TTS works with zero config, no key needed). The core
+  pipeline is now solid end-to-end. Let's kill the background dev servers
+  cleanly and give the status report.
+
+  Read 1 file, called claude-in-chrome (ctrl+o to expand)
+
+⏺ TTS returned 200 but playback failed with "no supported source found" — let's
+  check if the audio bytes are actually valid.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Confirmed — the /api/tts endpoint returns 200 with an empty body. That's the
+  real bug. Let's check server logs and the msedge-tts stream handling.
+
+  Searched for 2 patterns, read 1 file, ran 6 shell commands (ctrl+o to expand)
+⏺ That 105-byte "audio" is essentially empty — matches plan.md's exact warning:
+  Edge TTS needs Urdu script, not Roman Urdu, and the current code feeds it
+  Roman text directly. Let's confirm with real Urdu script.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ That confirms the root cause: real speech needs Urdu script, not Roman. Since
+  Groq isn't configured yet, let's fix the rule-based fallback (which is the
+  primary path right now) to generate proper Urdu-script text for TTS, matching
+  what plan.md's template design specifies.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/services/instructions.js)
+  ⎿  Added 39 lines, removed 3 lines
+       2  // Primary path: Groq-hosted Llama via the backend (fast, natur
+          al Roman Urdu).
+       3  // Fallback: rule-based template — keeps the demo working even 
+          if Groq is down
+       4  // or rate-limited, which matters a lot when you're on stage.
+       5 +//                                                             
+       6 +// Every instruction carries `urdu` (Roman, for on-screen readi
+         +ng) AND `native`                                               
+       7 +// (Urdu script, for TTS) — Edge TTS's Urdu voices produce near
+         +-silent/garbled                                                
+       8 +// audio when fed Roman Urdu text, so `native` is what actually
+         + gets spoken.                                                  
+       9  
+      10  const API_BASE = import.meta.env.VITE_API_BASE || '';
+      11  
+     ...
+      20    uturn: 'U-turn',
+      21  };
+      22  
+      23 +const MODIFIER_NATIVE = {                                      
+      24 +  left: 'ںیئاب',                                               
+      25 +  right: 'ںیئاد',                                              
+      26 +  'slight left': 'ںیئاب اکلہ',                                 
+      27 +  'slight right': 'ںیئاد اکلہ',                                
+      28 +  'sharp left': 'ںیئاب زیت',                                   
+      29 +  'sharp right': 'ںیئاد زیت',                                  
+      30 +  straight: 'اھدیس',                                           
+      31 +  uturn: 'نرٹ وی',                                             
+      32 +};                                                             
+      33 +                                                               
+      34  const CATEGORY_LABEL = {
+      35    mosque: 'masjid',
+      36    petrol_pump: 'petrol pump',
+     ...
+      42    landmark: 'jagah',
+      43  };
+      44  
+      45 +const CATEGORY_NATIVE = {                                      
+      46 +  mosque: 'دجسم',                                              
+      47 +  petrol_pump: 'پمپ لورٹپ',                                    
+      48 +  hospital: 'لاتپسہ',                                          
+      49 +  market: 'ٹیکرام',                                            
+      50 +  bank: 'کنیب',                                                
+      51 +  school: 'لوکسا',                                             
+      52 +  park: 'کراپ',                                                
+      53 +  landmark: 'ہگج',                                             
+      54 +};                                                             
+      55 +                                                               
+      56  export async function generateInstruction(step, landmark) {
+      57    if (step.instructionType === 'depart') {
+      32 -    return { urdu: 'Seedha chalein.', english: 'Go straight.' }
+         -;                                                              
+      58 +    return { urdu: 'Seedha chalein.', native: '۔ںیلچ اھدیس', en
+         +glish: 'Go straight.' };                                       
+      59    }
+      60    if (step.instructionType === 'arrive') {
+      61      return {
+      62        urdu: landmark
+      63          ? `${landmark.name} ke qareeb, aap manzil par pohanch c
+          huke hain.`
+      64          : 'Aap apni manzil par pohanch chuke hain.',
+      65 +      native: landmark                                         
+      66 +        ? `${landmark.name} ۔ںیہ ےکچ چنہپ رپ لزنم پآ ،بیرق ےک` 
+      67 +                     ,'۔ںیہ ےکچ چنہپ رپ لزنم ینپا پآ' :        
+      68        english: 'You have arrived at your destination.',
+      69      };
+      70    }
+     ...
+      77      });
+      78      if (!res.ok) throw new Error('LLM instruction request faile
+          d');
+      79      const data = await res.json();
+      51 -    if (data.urdu && data.english) return data;                
+      80 +    if (data.urdu && data.native && data.english) return data; 
+      81      throw new Error('Malformed LLM response');
+      82    } catch (err) {
+      83      console.warn('Falling back to rule-based instruction:', err
+          .message);
+     ...
+       87  
+       88  function ruleBasedInstruction(step, landmark) {
+       89    const modifierWord = MODIFIER_URDU[step.modifier] ?? 'aage';
+       90 +  const modifierNative = MODIFIER_NATIVE[step.modifier] ?? 'گآ
+          +                                                           ;'ے
+       91  
+       92    if (!landmark) {
+       93      const meters = Math.round(step.distanceMeters);
+       94      return {
+       95        urdu: `${meters} meter aage ${modifierWord} lein.`,
+       96 +      native: `${meters} ےگآ رٹیم ${modifierNative} ۔ںیڑم`,   
+       97        english: `In ${meters} meters, turn ${step.modifier}.`,
+       98      };
+       99    }
+      100  
+      101    const categoryLabel = CATEGORY_LABEL[landmark.category] ?? l
+           andmark.name;
+      102 +  const categoryNative = CATEGORY_NATIVE[landmark.category] ??
+          + landmark.name;                                               
+      103    const urdu =
+      104      step.modifier === 'straight'
+      105        ? `${landmark.name} (${categoryLabel}) ke paas se seedha
+            chalein.`
+      106        : `${landmark.name} (${categoryLabel}) ke baad ${modifie
+           rWord} lein.`;
+      107 +  const native =                                              
+      108 +    step.modifier === 'straight'                              
+      109 +      ? `${landmark.name} (${categoryNative}) اھدیس ےس ساپ ےک 
+          +                                                        `۔ںیلچ
+      110 +      : `${landmark.name} (${categoryNative}) دعب ےک ${modifie
+          +rNative} ۔ںیڑم`;                                              
+      111    const english =
+      112      step.modifier === 'straight'
+      113        ? `Continue straight past ${landmark.name}.`
+      114        : `Turn ${step.modifier} after ${landmark.name}.`;
+      115  
+       80 -  return { urdu, english };                                   
+      116 +  return { urdu, native, english };                           
+      117  }
+
+⏺ Now update the server's Groq prompt to also produce native, and update
+  Guide.jsx to speak the native field.
+
+⏺ Update(index.js)
+  ⎿  Added 1 line, removed 1 line
+      86    }
+      87    const { step, landmark } = req.body;
+      88  
+      89 -  const systemPrompt = `You write short, natural spoken navigat
+         -ion instructions in Roman Urdu (the way Pakistanis actually tex
+         -t/speak, NOT formal textbook Urdu), the way you'd tell a friend
+         - directions using a landmark. Always respond with ONLY a JSON o
+         -bject: {"urdu": "...", "english": "..."}. Keep the Urdu line un
+         -der 12 words. No extra text.`;                                 
+      89 +  const systemPrompt = `You write short, natural spoken navigat
+         +ion instructions for Pakistani drivers, the way you'd tell a fr
+         +iend directions using a landmark. Always respond with ONLY a JS
+         +ON object: {"urdu": "...", "native": "...", "english": "..."}. 
+         +"urdu" is Roman Urdu (the way Pakistanis actually text/speak, N
+         +OT formal textbook Urdu) — this is shown on screen. "native" is
+         + the SAME instruction written in actual Urdu script (Nastaliq/A
+         +rabic script) — this is what gets spoken by a neural TTS voice,
+         + so it must be real Urdu script, not transliteration. Keep each
+         + line under 12 words. No extra text.`;                         
+      90  
+      91    const userPrompt = landmark
+      92      ? `Turn type: ${step.instructionType}, direction: ${step.mo
+          difier}. Nearby landmark: "${landmark.name}" (${landmark.catego
+          ry}), ${landmark.distanceToTurn}m from the turn.`
+
+⏺ Update(~/Documents/hackathons/rasta-app/src/screens/Guide.jsx)
+  ⎿  Added 2 lines, removed 2 lines
+      51  
+      52    function playStep(step) {
+      53      setPlayingIndex(step.index);
+      54 -    speak(step.instruction.urdu, { onEnd: () => setPlayingIndex
+         -(null) });                                                     
+      54 +    speak(step.instruction.native, { onEnd: () => setPlayingInd
+         +ex(null) });                                                   
+      55    }
+      56  
+      57    function playAll() {
+     ...
+      64        }
+      65        const step = route.steps[i];
+      66        setPlayingIndex(step.index);
+      67 -      speak(step.instruction.urdu, {                           
+      67 +      speak(step.instruction.native, {                         
+      68          onEnd: () => {
+      69            i += 1;
+      70            playNext();
+
+⏺ Now let's reload and verify TTS actually produces sound with the fix.
+
+  Called claude-in-chrome 2 times, ran 1 shell command (ctrl+o to expand)
+
+⏺ 18KB of real MP3 audio now, versus 0 bytes before. Let's verify the same in
+  the browser end-to-end.
+
+  Called claude-in-chrome 10 times (ctrl+o to expand)
+
+⏺ Good, right screen and it's already loaded fast. Let's click play now.
+
+  Called claude-in-chrome 4 times (ctrl+o to expand)
+
+⏺ No playback errors this time — TTS is fixed. Let's close the tab and wrap up.
+
+  Called claude-in-chrome (ctrl+o to expand)
+
+⏺ Status: app works end-to-end now, on the free path, no API key needed
+
+  What was already built (this codebase diverges from plan.md's file layout — it
+  uses a small Express backend instead of client-side engine-swap modules, but
+  covers nearly the same scope): voice input recording, Nominatim geocoding,
+  OSRM routing, Overpass landmark search, the saliency ranking algorithm,
+  rule-based + LLM instruction generation, Edge TTS narration, a Leaflet map
+  (plan.md deferred this to post-MVP — here it's already done), and an Android
+  Capacitor scaffold.
+
+  Bugs found and fixed just now (all three would have killed a live demo):
+
+  1. Overpass called once per turn instead of once per route (pipeline.js) — a
+     real route hung for 2+ minutes because the public Overpass API queues
+     per-turn queries. This was the exact anti-pattern plan.md's Day 3 section
+     warned about. Fixed: one bbox query for the whole route corridor, landmarks
+     filtered per-turn in memory. Now resolves in ~2 seconds.
+  2. Geocoding could land anywhere on Earth (geocode.js) — "Convention Center"
+     resolved to a route 5,632 km away because bounded:0 only biases Nominatim,
+     it doesn't restrict it. Fixed: added the curated destination table plan.md
+     specified (the 4 demo chips now resolve to real Blue Area coordinates),
+     Nominatim now strictly bounded as fallback.
+  3. TTS was silent — Edge TTS was being fed Roman Urdu ("Seedha chalein"),
+     which produces ~0 bytes of audio; it needs actual Urdu script. This is
+     plan.md's own documented constraint, just not wired up. Fixed:
+     instructions.js now generates a native (Urdu script) field alongside the
+     Roman one, speak() now sends that field. Verified real MP3 audio (18KB,
+     playable) is now returned.
+
+  Currently running: npm run dev:all in the background — frontend on
+  http://localhost:5173, backend on http://localhost:3001. No .env exists yet,
+  so Groq (STT + LLM instructions) is off; TTS works with zero config since Edge
+  TTS needs no key.
+
+  What's left to fully match plan.md, if you want it tonight:
+  - A Groq key (free at console.groq.com) turns on real voice input and richer
+    LLM-generated instructions — everything else already degrades gracefully
+    without it (typed destination chips, rule-based Urdu instructions, real TTS
+    voice all work now).
+  - Not yet done: live GPS turn-by-turn nav loop (plan.md day 6), Android
+    build/test (day 7).
+
+  Want me to wire up the Groq key if you have one, or is the current voice-free
+  flow (type/tap destination → hear real Urdu narration) enough for tonight's
+  demo?
+
+✻ Churned for 11m 23s · done 4:36 PM
+
+※ recap: Building the Rasta Urdu navigation app for tonight's demo; just fixed slow routing, wrong geocoding, and silent TTS, and it now works end to end without a Groq key. Next: decide if you want to add a Groq key for real voice input, or demo as-is. (disable recaps in /config)

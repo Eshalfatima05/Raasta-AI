@@ -1,0 +1,76 @@
+.camera-assist {
+  margin: 16px 0 4px;
+  padding: 16px;
+  border: 1px solid rgba(245, 239, 227, 0.12);
+  border-radius: 18px;
+  background: rgba(27, 42, 52, 0.78);
+}
+
+.camera-assist__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.camera-assist__eyebrow {
+  margin: 0 0 3px;
+  color: var(--marigold);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.camera-assist h3 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.camera-assist__toggle {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 1px solid rgba(242, 184, 75, 0.55);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--marigold);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.camera-assist.is-active .camera-assist__toggle {
+  border-color: var(--maroon);
+  background: var(--maroon);
+  color: var(--paper);
+}
+
+.camera-assist__video {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  margin-top: 14px;
+  border-radius: 13px;
+  background: #071015;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.camera-assist__status,
+.camera-assist__detection,
+.camera-assist__note {
+  margin: 10px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.camera-assist__detection {
+  color: var(--marigold);
+  font-weight: 600;
+}
+
+.camera-assist__note {
+  opacity: 0.72;
+}
